@@ -29,7 +29,7 @@ await nyx.login(email, password)
 
 Всё! Теперь вам доступны все функции. Например, вы можете подписаться на обновления в реальном времени:
 ```python
-@nox_event(type=nox_event.NEW_MESSAGE) # новое сообщение
+@nyx_event(type=nyx_event.NEW_MESSAGE) # новое сообщение
 async def on_message(ev):
     if ev.data["sender_id"] == nyx.current_user.id: # игнорируем наши же сообщения
         return

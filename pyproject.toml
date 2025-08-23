@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nyxpy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Библиотека для взаимодействия с Nyx, бесплатного аналога Discord"
 readme = "README.md"
 requires-python = ">=3.11"

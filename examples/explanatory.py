@@ -14,7 +14,7 @@ import logging
 
 from nyxpy import (
     NyxClient,
-    nox_event,
+    nyx_event,
     configure_logging,
     Server,
 )
@@ -22,20 +22,20 @@ from nyxpy import (
 nyx = NyxClient()
 
 # Обработчики событий
-@nox_event(type=nox_event.CONNECT) # WS успешно подключен!
+@nyx_event(type=nyx_event.CONNECT) # WS успешно подключен!
 def on_connect(ev):
     print("[ПОДКЛЮЧЕНИЕ]", ev.raw)
 
-@nox_event(type=nox_event.DISCONNECT) # отключение WS
+@nyx_event(type=nyx_event.DISCONNECT) # отключение WS
 def on_disconnect(ev):
     print("[ОТКЛЮЧЕНИЕ]", ev)
 
-@nox_event(type=nox_event.PRESENCE_UPDATE) # обновления состояний пользователей
+@nyx_event(type=nyx_event.PRESENCE_UPDATE) # обновления состояний пользователей
 def on_presence(ev):
     # print(f"[PRESENCE] channel={ev.channel} size={len(ev.data) if isinstance(ev.data, dict) else '?'}")
     return
 
-@nox_event(type=nox_event.NEW_MESSAGE) # новое сообщение
+@nyx_event(type=nyx_event.NEW_MESSAGE) # новое сообщение
 async def on_message(ev):
     if ev.data["sender_id"] == nyx.current_user.id: # игнорируем наши же сообщения
         return
@@ -60,11 +60,11 @@ async def on_message(ev):
     await nyx.reply(ev, f"Сервер имеет {len(channels)} каналов. Перечисляю: {channels_text}")
     # await nyx.send_message(ev.data["channel_name"], "а это сообщение можно было отправить и по-иному")
 
-@nox_event(type=nox_event.TYPING) # событие типа "kolya печатает..."
+@nyx_event(type=nyx_event.TYPING) # событие типа "kolya печатает..."
 async def on_typing(ev):
     print(f"[ПЕЧАТАЕТ] channel={ev.channel} data={ev.data}")
 
-@nox_event(type=nox_event.FRIEND_REQUEST) # новый запрос в друзья
+@nyx_event(type=nyx_event.FRIEND_REQUEST) # новый запрос в друзья
 async def on_friend_request(ev):
     print(f"[ПРЕДЛОЖЕНИЕ ДРУЖБЫ] channel={ev.channel} data={ev.data}")
     # получаем все запросы в друзья
@@ -74,7 +74,7 @@ async def on_friend_request(ev):
         await nyx.accept_friend_request(friend.id)
 
 # Сюда будут приходить все события и иные сообщения
-@nox_event(type=nox_event.RAW)
+@nyx_event(type=nyx_event.RAW)
 def on_raw(ev):
     # Полезная функция для обработки "сырых" сообщений от сервера.
     # print("[RAW]", ev.raw)

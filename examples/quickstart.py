@@ -1,12 +1,12 @@
 import asyncio
 
 from nyxpy import (
-    NyxClient, nox_event
+    NyxClient, nyx_event
 )
 
 nyx = NyxClient()
 
-@nox_event(type=nox_event.NEW_MESSAGE) # новое сообщение
+@nyx_event(type=nyx_event.NEW_MESSAGE) # новое сообщение
 async def on_message(ev):
     if ev.data["sender_id"] == nyx.current_user.id: # игнорируем наши же сообщения
         return

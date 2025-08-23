@@ -63,7 +63,7 @@ class _NoxEventDecorator:
         return deco
 
 
-nox_event = _NoxEventDecorator()
+nyx_event = _NoxEventDecorator()
 
 
 class NyxClient(NyxHTTPClient):
