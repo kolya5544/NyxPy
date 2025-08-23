@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nyxpy"
+version = "0.1.0"
+description = "Библиотека для взаимодействия с Nyx, бесплатного аналога Discord"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Nickolay Kushnarenko", email = "kolya@nk.ax" }]
+keywords = ["nyx", "websocket", "httpx", "bots", "asyncio", "discord"]
+dependencies = [
+  "httpx>=0.28.1",
+  "websockets>=15.0",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Typing :: Typed",
+  "Framework :: AsyncIO",
+]
+
+[project.urls]
+Homepage = "https://github.com/kolya5544/nyxpy"
+Issues = "https://github.com/kolya5544/nyxpy/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nyxpy = ["py.typed"]
