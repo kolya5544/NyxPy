@@ -8,6 +8,49 @@ NyxPy отличается...
 - АСИНХРОННОСТЬЮ! Библиотека полностью асинхронная
 - СТАБИЛЬНОСТЬЮ! На данный момент мы являемся самой обновляемой и проверенной библиотекой для разработки под Nyx.
 
+## Использование
+
+Для начала вам необходимо создать экземпляр вашего клиента. Один клиент - один пользователь:
+```python
+from nyxpy import (
+    NyxClient
+)
+
+nyx = NyxClient()
+```
+
+После этого необходимо авторизоваться:
+```python
+email = "ваша почта"
+password = "ваш пароль"
+
+await nyx.login(email, password)
+```
+
+Всё! Теперь вам доступны все функции. Например, вы можете подписаться на обновления в реальном времени:
+```python
+@nox_event(type=nox_event.NEW_MESSAGE) # новое сообщение
+async def on_message(ev):
+    if ev.data["sender_id"] == nyx.current_user.id: # игнорируем наши же сообщения
+        return
+
+    await nyx.reply(ev, f"Привет, {ev.data["member"]["username"]}!")
+
+...
+
+# подписываемся
+await nyx.connect_ws()
+await nyx.ws_subscribe_all()
+```
+
+Либо просто отправляем HTTP запросы:
+```python
+channels = await nyx.get_channels(server_id)
+```
+
+Больше примеров тут: https://github.com/kolya5544/NyxPy/tree/master/examples
+
+
 ## Функции
 
 | Функция                | Статус  | Заметки |
