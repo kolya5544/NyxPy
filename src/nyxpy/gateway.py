@@ -92,7 +92,6 @@ class NyxClient(NyxHTTPClient):
             raise NyxAuthError(401, "No token for WS. Call login() first or pass token=.")
         self._ws_url = f"{url}?token={self._ws_token}"
         self._ws_reconnect = reconnect
-        self._subscriptions: Set[str] = set()
         self._ws_ssl = ssl_context
         self._ws_subprotocols = list(subprotocols) if subprotocols else None
         self._ws_headers = dict(extra_headers) if extra_headers else None
@@ -142,6 +141,7 @@ class NyxClient(NyxHTTPClient):
                     userData = await self.get_user_info()
                     id = userData.id
                     await self._ws_send({"subscribe":{"channel":f"user:{id}","data":{"user_id":id}}})
+                    await self._replay_subscriptions()
                     self._ws_ready.set()
                     await _dispatcher.dispatch(Event(EventType.CONNECT, data={}, raw={"url": url}))
                     async for message in ws:
@@ -150,48 +150,8 @@ class NyxClient(NyxHTTPClient):
                             await self._ws_send_raw("{}")
                             continue
                         ev = self._map_ws_to_event(obj)
-                        if ev.type == EventType.NEW_MESSAGE and isinstance(ev.channel, str) and ev.channel.startswith(
-                                "server:"):
-                            try:
-                                # channel format: server:{server_id}:{...}
-                                server_id = int(ev.channel.split(":", 2)[1])
-
-                                # ---- attach sender's member (unchanged) ----
-                                sender_id = None
-                                if isinstance(ev.data, dict):
-                                    sid = ev.data.get("sender_id") or ev.data.get("user_id") or ev.data.get("author_id")
-                                    if isinstance(sid, str):
-                                        sender_id = int(sid) if sid.isdigit() else None
-                                    elif isinstance(sid, (int, float)):
-                                        sender_id = int(sid)
-                                if sender_id is not None:
-                                    member = await self.get_member(server_id, sender_id, fetch_if_missing=True)
-                                    if member:
-                                        ev.data["member"] = asdict(member)
-
-                                # ---- NEW: attach replied-to member, if present ----
-                                # looks inside ev.data["data"]["reply"]["sender_id"]
-                                reply_sender_id = None
-                                inner = ev.data.get("data") if isinstance(ev.data, dict) else None
-                                if isinstance(inner, dict):
-                                    rep = inner.get("reply")
-                                    if isinstance(rep, dict):
-                                        rsid = rep.get("sender_id")
-                                        if isinstance(rsid, str):
-                                            reply_sender_id = int(rsid) if rsid.isdigit() else None
-                                        elif isinstance(rsid, (int, float)):
-                                            reply_sender_id = int(rsid)
-
-                                if reply_sender_id:
-                                    rmember = await self.get_member(server_id, reply_sender_id, fetch_if_missing=True)
-                                    if rmember:
-                                        # prefer to attach alongside the nested reply payload
-                                        if isinstance(inner, dict):
-                                            inner["reply_member"] = asdict(rmember)
-                                        elif isinstance(ev.data, dict):
-                                            ev.data["reply_member"] = asdict(rmember)
-                            except Exception as e:  # pragma: no cover
-                                self._logger.debug("Failed to enrich NEW_MESSAGE for %s: %r", ev.channel, e)
+                        if ev.type == EventType.NEW_MESSAGE:
+                            await self._enrich_new_message(ev)
 
                         await _dispatcher.dispatch(ev)
             except asyncio.CancelledError:
@@ -231,6 +191,72 @@ class NyxClient(NyxHTTPClient):
                 #await ws.send("{}")
         except asyncio.CancelledError:
             return
+
+    async def _enrich_new_message(self, ev: Event) -> None:
+        """Attach sender 'member' and (if present) 'reply_member' to NEW_MESSAGE events."""
+        if not isinstance(ev.channel, str):
+            return
+        try:
+            # channel format: server:{server_id}:{...} OR dm:{id1}:{id2}
+            server_id = int(ev.channel.split(":", 2)[1])
+
+            # ---- attach sender's member ----
+            sender_id = None
+            if isinstance(ev.data, dict):
+                sid = ev.data.get("sender_id") or ev.data.get("user_id") or ev.data.get("author_id")
+                if isinstance(sid, str):
+                    sender_id = int(sid) if sid.isdigit() else None
+                elif isinstance(sid, (int, float)):
+                    sender_id = int(sid)
+
+            if sender_id is not None:
+                if isinstance(ev.channel, str) and ev.channel.startswith("server:"):
+                    # server context: pull from members
+                    member = await self.get_member(server_id, sender_id, fetch_if_missing=True)
+                    if member and isinstance(ev.data, dict):
+                        ev.data["member"] = asdict(member)
+                elif isinstance(ev.channel, str) and ev.channel.startswith("dm:"):
+                    # DM context: pull from friends cache; if it's me, fall back to current_user
+                    friends_by_id = await self.ensure_friends_cached()
+                    f = friends_by_id.get(sender_id)
+                    if f and isinstance(ev.data, dict):
+                        ev.data["member"] = asdict(f)
+                    elif getattr(self, "current_user", None) and self.current_user.id == sender_id:
+                        ev.data["member"] = asdict(self.current_user)
+
+            # ---- attach replied-to member, if present ----
+            # ---- attach replied-to member, if present (server members OR DM friends) ----
+            inner = ev.data.get("data") if isinstance(ev.data, dict) else None
+            reply_sender_id = None
+            if isinstance(inner, dict):
+                rep = inner.get("reply")
+                if isinstance(rep, dict):
+                    rsid = rep.get("sender_id")
+                    if isinstance(rsid, str):
+                        reply_sender_id = int(rsid) if rsid.isdigit() else None
+                    elif isinstance(rsid, (int, float)):
+                        reply_sender_id = int(rsid)
+
+            if reply_sender_id is not None:
+                # decide by channel kind
+                if isinstance(ev.channel, str) and ev.channel.startswith("server:"):
+                    rmember = await self.get_member(server_id, reply_sender_id, fetch_if_missing=True)
+                    if rmember:
+                        target = inner if isinstance(inner, dict) else (ev.data if isinstance(ev.data, dict) else None)
+                        if target is not None:
+                            target["reply_member"] = asdict(rmember)
+
+                elif isinstance(ev.channel, str) and ev.channel.startswith("dm:"):
+                    friends_by_id = await self.ensure_friends_cached()
+                    rf = friends_by_id.get(reply_sender_id)
+                    target = inner if isinstance(inner, dict) else (ev.data if isinstance(ev.data, dict) else None)
+                    if rf and target is not None:
+                        target["reply_member"] = asdict(rf)
+                    elif getattr(self, "current_user",
+                                 None) and self.current_user.id == reply_sender_id and target is not None:
+                        target["reply_member"] = asdict(self.current_user)
+        except Exception as e:  # pragma: no cover
+            self._logger.debug("Failed to enrich NEW_MESSAGE for %s: %r", ev.channel, e)
 
     # ---- Mapping & send helpers ----
     def _map_ws_to_event(self, obj: Dict[str, Any]) -> Event:
@@ -293,11 +319,12 @@ class NyxClient(NyxHTTPClient):
 
     # ---- Presence (snapshot) ----
     async def ws_presence(self, channel: str) -> None:
-        """Request presence snapshot for a channel."""
+        """Request presence/subscribe snapshot for a channel and remember it."""
         userInfo = await self.get_user_info()
         userId = userInfo.id
-        await self._ws_send({"subscribe": {"channel": channel, "data":{"user_id":userId}}})
-        self._subscriptions.add(channel)
+        frame = {"subscribe": {"channel": channel, "data": {"user_id": userId}}}
+        self._remember_subscription(frame)
+        await self._ws_send(frame)
 
     # ---- Subscriptions ----
     async def ws_subscribe_channel(self, channel: str, *, data: Optional[Mapping[str, Any]] = None) -> None:
@@ -305,12 +332,14 @@ class NyxClient(NyxHTTPClient):
         payload: Dict[str, Any] = {"subscribe": {"channel": channel}}
         if data:
             payload["subscribe"]["data"] = dict(data)
+        self._remember_subscription(payload)
         await self._ws_send(payload)
-        self._subscriptions.add(channel)
 
-    async def ws_subscribe_user(self, user_id: int) -> None:
+    async def ws_subscribe_dms(self, user_id: int) -> None:
         """Subscribe to personal user channel per your flow: {"subscribe":{"channel":"user:<id>","data":{"user_id":<id>}}}"""
-        await self.ws_subscribe_channel(f"user:{user_id}", data={"user_id": user_id})
+        minV = min(self.current_user.id, user_id)
+        maxV = max(self.current_user.id, user_id)
+        await self.ws_subscribe_channel(f"dm:{minV}:{maxV}", data={"user_id": user_id})
 
     async def ws_subscribe_server(self, server_id: int, *, channel_name: str = "general") -> None:
         """Subscribe to a specific server's channel. Many deployments accept presence as the join mechanism."""
@@ -322,6 +351,8 @@ class NyxClient(NyxHTTPClient):
     async def ws_subscribe_all(self, *, channel_name: str = "general") -> None:
         """Fetch servers via HTTP and subscribe to each one's channel,
         excluding any servers whose IDs are non-unique in the response.
+
+        Additionally, subscribe to all DMs
         """
         servers: list[Server] = await self.get_servers()
         counts = Counter(s.id for s in servers)
@@ -336,4 +367,33 @@ class NyxClient(NyxHTTPClient):
 
         for s in unique_servers:
             await self.ws_subscribe_server(s.id, channel_name=channel_name)
-            await self._ws_send({"presence": {"channel": f"server:{s.id}:general"}})
+            frame = {"presence": {"channel": f"server:{s.id}:general"}}
+            self._remember_subscription(frame)
+            await self._ws_send(frame)
+
+        # get list of friends
+        friends = await self.get_friends()
+        for friend in friends:
+            await self.ws_subscribe_dms(friend.id)
+
+    def _remember_subscription(self, frame: Dict[str, Any]) -> None:
+        """Persist a subscribe/presence frame to replay after reconnect."""
+        # lazy-init so we don't overwrite on reconnects
+        if not hasattr(self, "_subs_set"):
+            self._subs_set: set[str] = set()
+            self._subs_frames: dict[str, Dict[str, Any]] = {}
+        key = json.dumps(frame, sort_keys=True, separators=(",", ":"))
+        if key not in self._subs_set:
+            self._subs_set.add(key)
+            self._subs_frames[key] = frame
+
+    async def _replay_subscriptions(self) -> None:
+        """Resend all remembered subscribe/presence frames."""
+        frames = getattr(self, "_subs_frames", None)
+        if not frames:
+            return
+        for frame in frames.values():
+            try:
+                await self._ws_send(frame)
+            except Exception as e:  # pragma: no cover
+                self._logger.debug("Resubscribe failed for %s: %r", frame, e)

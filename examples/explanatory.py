@@ -43,21 +43,27 @@ async def on_message(ev):
 
     server_id = int(ev.data["channel_name"].split(":")[1])
 
-    # получим список ролей на сервере
-    roles = await nyx.get_roles(server_id)
-    roles_text = ""
-    for role in roles:
-        roles_text += f"{role.name} ({role.id}), "
+    await nyx.reply(ev,
+                    f"Привет, {ev.data["member"]["username"]}! Твой ID: {ev.data["sender_id"]}, а твоё сообщение имеет длину: {len(ev.data["data"]["content"])}")
 
-    # получим список каналов на сервере
-    channels = await nyx.get_channels(server_id)
-    channels_text = ""
-    for channel in channels:
-        channels_text += f"{channel.name} ({channel.id}), "
+    if ev.data["channel_name"].startswith("server"): # мы получили сообщение на СЕРВЕРЕ
+        # получим список ролей на сервере
+        roles = await nyx.get_roles(server_id)
+        roles_text = ""
+        for role in roles:
+            roles_text += f"{role.name} ({role.id}), "
 
-    await nyx.reply(ev, f"Привет, {ev.data["member"]["username"]}! Твой ID: {ev.data["sender_id"]}, а твоё сообщение имеет длину: {len(ev.data["data"]["content"])}")
-    await nyx.reply(ev, f"Нашёл на этом сервере {len(roles)} ролей! Вот они: {roles_text}")
-    await nyx.reply(ev, f"Сервер имеет {len(channels)} каналов. Перечисляю: {channels_text}")
+        # получим список каналов на сервере
+        channels = await nyx.get_channels(server_id)
+        channels_text = ""
+        for channel in channels:
+            channels_text += f"{channel.name} ({channel.id}), "
+
+        await nyx.reply(ev, f"Нашёл на этом сервере {len(roles)} ролей! Вот они: {roles_text}")
+        await nyx.reply(ev, f"Сервер имеет {len(channels)} каналов. Перечисляю: {channels_text}")
+    elif ev.data["channel_name"].startswith("dm"): # данное сообщение было получено в ЛС
+        # можем сделать что-то другое...
+        await nyx.reply(ev, f"Ты отправил мне это сообщение в ЛС.")
     # await nyx.send_message(ev.data["channel_name"], "а это сообщение можно было отправить и по-иному")
 
 @nyx_event(type=nyx_event.TYPING) # событие типа "kolya печатает..."
@@ -77,7 +83,7 @@ async def on_friend_request(ev):
 @nyx_event(type=nyx_event.RAW)
 def on_raw(ev):
     # Полезная функция для обработки "сырых" сообщений от сервера.
-    # print("[RAW]", ev.raw)
+    print("[RAW]", ev.raw)
     return
 
 async def main():
@@ -99,7 +105,7 @@ async def main():
 
     # Пример 3: Подключение к обновлениям в реальном времени
     await nyx.connect_ws()
-    # подписываемся на все доступные сервера.
+    # подписываемся на все доступные сервера + на личные сообщения
     await nyx.ws_subscribe_all()
     # подписаться на один сервер: await nyx.ws_subscribe_server(id=123)
 

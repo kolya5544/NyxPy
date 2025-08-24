@@ -4,9 +4,9 @@ import json
 from typing import Any, Dict, List, Mapping, Optional
 
 from .http import NyxHTTPClient as _Base
-from .types import Server, UserInfo, Member, Event, FriendRequest, Role, Channel
+from .types import Server, UserInfo, Member, Event, FriendRequest, Role, Channel, FriendUser, NyxAuthError
 from .http_parsers import (
-    parse_user_info, parse_member, parse_friend_request, parse_role, parse_channel,
+    parse_user_info, parse_member, parse_friend_request, parse_role, parse_channel, parse_friend_user,
 )
 
 class NyxHTTPClient(_Base):
@@ -71,6 +71,35 @@ class NyxHTTPClient(_Base):
                 if isinstance(item, dict):
                     out.append(parse_friend_request(item))
         return out
+
+    # ---- friends (list) ----
+    async def get_friends(self) -> list[FriendUser]:
+        """GET /i/friends/ — list all accepted friends."""
+        resp = await self.request("GET", "/i/friends/")
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            data = []
+        out: list[FriendUser] = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    out.append(parse_friend_user(item))
+        return out
+
+    async def ensure_friends_cached(self) -> Dict[int, FriendUser]:
+        """Return friends as a dict {user_id: FriendUser}, fetching once if needed."""
+        cache = getattr(self, "_friends_by_id", None)
+        if not cache:
+            friends = await self.get_friends()
+            self._friends_by_id = {f.id: f for f in friends}
+        return self._friends_by_id  # type: ignore[attr-defined]
+
+    async def refresh_friends_cache(self) -> Dict[int, FriendUser]:
+        """Force-refresh friends cache."""
+        friends = await self.get_friends()
+        self._friends_by_id = {f.id: f for f in friends}
+        return self._friends_by_id  # type: ignore[attr-defined]
 
     # ---- servers/users ----
     async def get_servers(self) -> List[Server]:
@@ -142,7 +171,10 @@ class NyxHTTPClient(_Base):
     # Channels
     async def get_channels(self, server_id: int) -> list[Channel]:
         """GET /i/channels/?server_id=..."""
-        resp = await self.request("GET", "/i/channels/", params={"server_id": int(server_id)})
+        try:
+            resp = await self.request("GET", "/i/channels/", params={"server_id": int(server_id)})
+        except NyxAuthError:
+            return [] # probably requesting channels of DMs?
         try:
             data = resp.json()
         except json.JSONDecodeError:
