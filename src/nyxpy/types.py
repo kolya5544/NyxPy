@@ -86,6 +86,20 @@ class FriendRequest:
     sender: Optional[FriendUser] = None
 
 @dataclass(slots=True)
+class Participant:
+    user_id: int
+    voice_channel_id: int
+    server_id: int
+    muted: bool
+    sound_muted: bool
+    live: bool
+    audio_stream_id: str
+    muted_by_audio: bool
+    audio_level_threshold: float  # number from API; cast to float
+    video_stream_id: str
+    stream_preview_url: str
+
+@dataclass(slots=True)
 class Channel:
     id: int
     name: str
@@ -95,6 +109,7 @@ class Channel:
     parent_channel_id: Optional[int]
     roles_overrides: List[Any]
     users_overrides: List[Any]
+    participants: Optional[List[Participant]] = None
 
 @dataclass(slots=True)
 class Role:

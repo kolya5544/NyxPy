@@ -10,7 +10,7 @@ from .types import (
     Event,
     EventType,
     Server,
-    UserInfo, FriendUser, FriendRequest, Channel, Role,  # NEW
+    UserInfo, FriendUser, FriendRequest, Channel, Role, Participant,  # NEW
 )
 from .utils import configure_logging, get_logger
 from .http_api import NyxHTTPClient
@@ -31,6 +31,7 @@ __all__ = [
     "UserInfo",
     "FriendUser",
     "FriendRequest",
+    "Participant",
     "Channel",
     "Role",
     # clients
@@ -40,4 +41,8 @@ __all__ = [
     "nyx_event",
 ]
 
-__version__ = "0.2.0"
+# Аудио
+from .rtc import NyxRTCSession, nyx_audio_event
+__all__.extend(["NyxRTCSession", "nyx_audio_event"])
+
+__version__ = "0.3.0"

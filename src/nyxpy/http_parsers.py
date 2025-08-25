@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Mapping, Any
-from .types import UserInfo, Member, FriendUser, FriendRequest, Role, Channel
+from .types import UserInfo, Member, FriendUser, FriendRequest, Role, Channel, Participant
 
 
 def parse_user_info(data: Mapping[str, Any]) -> UserInfo:
@@ -54,6 +54,21 @@ def parse_channel(data: Mapping[str, Any]) -> Channel:
         parent_channel_id=parent_id,
         roles_overrides=list(data.get("roles_overrides", []) or []),
         users_overrides=list(data.get("users_overrides", []) or []),
+    )
+
+def parse_participant(data: Mapping[str, Any]) -> Participant:
+    return Participant(
+        user_id=int(data.get("user_id", 0)),
+        voice_channel_id=int(data.get("voice_channel_id", 0)),
+        server_id=int(data.get("server_id", 0)),
+        muted=bool(data.get("muted", False)),
+        sound_muted=bool(data.get("sound_muted", False)),
+        live=bool(data.get("live", False)),
+        audio_stream_id=str(data.get("audio_stream_id", "")),
+        muted_by_audio=bool(data.get("muted_by_audio", False)),
+        audio_level_threshold=float(data.get("audio_level_threshold", 0)),
+        video_stream_id=str(data.get("video_stream_id", "")),
+        stream_preview_url=str(data.get("stream_preview_url", "")),
     )
 
 def parse_role(data: Mapping[str, Any]) -> Role:

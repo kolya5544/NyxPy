@@ -4,10 +4,14 @@ import json
 from typing import Any, Dict, List, Mapping, Optional
 
 from .http import NyxHTTPClient as _Base
-from .types import Server, UserInfo, Member, Event, FriendRequest, Role, Channel, FriendUser, NyxAuthError
+from .types import Server, UserInfo, Member, Event, FriendRequest, Role, Channel, FriendUser, NyxAuthError, NyxError, \
+    Participant
 from .http_parsers import (
     parse_user_info, parse_member, parse_friend_request, parse_role, parse_channel, parse_friend_user,
+    parse_participant,
 )
+
+from .rtc import NyxRTCSession
 
 class NyxHTTPClient(_Base):
     """High-level HTTP API on top of the core transport/auth client."""
@@ -170,21 +174,86 @@ class NyxHTTPClient(_Base):
 
     # Channels
     async def get_channels(self, server_id: int) -> list[Channel]:
-        """GET /i/channels/?server_id=..."""
+        """GET /i/channels/?server_id=... ; for voice channels, attach participants."""
         try:
             resp = await self.request("GET", "/i/channels/", params={"server_id": int(server_id)})
         except NyxAuthError:
-            return [] # probably requesting channels of DMs?
+            return []  # probably requesting channels of DMs?
         try:
             data = resp.json()
         except json.JSONDecodeError:
             data = []
+
+        if not hasattr(self, "_server_by_channel"):
+            self._server_by_channel = {}  # type: ignore[attr-defined]
+
         out: list[Channel] = []
         if isinstance(data, list):
             for item in data:
-                if isinstance(item, dict):
-                    out.append(parse_channel(item))
+                if not isinstance(item, dict):
+                    continue
+                ch = parse_channel(item)
+                out.append(ch)
+
+                # cache channel -> server mapping
+                try:
+                    self._server_by_channel[int(ch.id)] = int(ch.server_id)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+                # if it's a voice channel, fetch and attach typed participants
+                if isinstance(ch.type, str) and ch.type.lower() == "voice":
+                    try:
+                        ch.participants = await self.get_participants(int(ch.id))
+                    except Exception:
+                        self._logger.debug("Failed to fetch participants for channel %s", ch.id, exc_info=True)
         return out
+
+    async def get_participants(self, channel_id: int) -> list[Participant]:
+        """
+        GET /i/channels/{channel_id}/session?server_id=<sid>
+        `server_id` is resolved from cache; if unknown, we scan servers+channels once.
+        Returns a typed list[Participant].
+        """
+        cid = int(channel_id)
+
+        # resolve server_id from cache (channel -> server)
+        sid: Optional[int] = None
+        cache = getattr(self, "_server_by_channel", None)
+        if isinstance(cache, dict):
+            sid = cache.get(cid)
+
+        # if missing, build/refresh cache by scanning servers
+        if sid is None:
+            servers = self._server_list or await self.get_servers()
+            for s in servers:
+                try:
+                    await self.get_channels(int(s.id))  # refresh cache for each server
+                except Exception:
+                    continue
+                cache = getattr(self, "_server_by_channel", None)
+                if isinstance(cache, dict) and cid in cache:
+                    sid = int(cache[cid])
+                    break
+
+        if sid is None:
+            raise NyxError(f"Cannot resolve server_id for channel_id={cid}")
+
+        # fetch session participants
+        resp = await self.request("GET", f"/i/channels/{cid}/session", params={"server_id": int(sid)})
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            data = {}
+
+        raw_list = data.get("participants", [])
+        participants: list[Participant] = []
+        if isinstance(raw_list, list):
+            for p in raw_list:
+                if not isinstance(p, dict):
+                    continue
+                participants.append(parse_participant(p))
+        return participants
 
     # Roles (all in server)
     async def get_roles(self, server_id: int) -> list[Role]:
@@ -215,3 +284,33 @@ class NyxHTTPClient(_Base):
                 if isinstance(item, dict):
                     out.append(parse_role(item))
         return out
+
+    async def voice_join(
+            self,
+            channel_id: int,
+            *,
+            base_ws_url: str = "wss://livekit.nyx-app.ru",
+            auto_subscribe: bool = False,
+            wait_connected: bool = False,
+            connect_timeout: float = 10.0,
+            **join_opts,
+    ) -> "NyxRTCSession":
+        """Join a Nyx voice channel (LiveKit room) and return an RTC session.
+
+        Args:
+            channel_id: Nyx voice-channel ID to join.
+            base_ws_url: LiveKit signaling URL base.
+            auto_subscribe: whether to auto-subscribe to remote tracks.
+            wait_connected: if True, wait for RTC 'connected' event before returning.
+            connect_timeout: seconds to wait when wait_connected=True.
+            **join_opts: passed through to /i/channels/{id}/token (e.g., audio_muted, ptt_enabled).
+        """
+        session = NyxRTCSession(
+            http_client=self,
+            channel_id=int(channel_id),
+            base_ws_url=base_ws_url,
+            auto_subscribe=auto_subscribe,
+            logger=self._logger,
+        )
+        await session.connect(wait_connected=wait_connected, timeout=connect_timeout, **join_opts)
+        return session

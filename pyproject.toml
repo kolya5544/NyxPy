@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nyxpy"
-version = "0.2.0"
+version = "0.3.0"
 description = "Библиотека для взаимодействия с Nyx, бесплатного аналога Discord"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,8 +12,9 @@ license = { file = "LICENSE" }
 authors = [{ name = "Nickolay Kushnarenko", email = "kolya@nk.ax" }]
 keywords = ["nyx", "websocket", "httpx", "bots", "asyncio", "discord"]
 dependencies = [
-  "httpx[http2]>=0.28.1",
-  "websockets>=15.0",
+    "httpx[http2]>=0.28.1",
+    "websockets>=15.0",
+    "livekit>=1.0.0"
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
